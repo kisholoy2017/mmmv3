@@ -994,17 +994,18 @@ elif tab_selection == "📈 Results & Insights":
             
             # 1. Media channel contributions
             for feat in feat_cols:
-                beta = float(model.params.get(feat, 0.0))
-                contrib = np.sum(X_test[feat].values * beta)
-                channel_name = meta[feat]['spend_col']
-                contributions[channel_name] = contrib
+                if feat in model.params.index:
+                    beta = float(model.params[feat])
+                    contrib = np.sum(X_test[feat].values * beta)
+                    channel_name = meta[feat]['spend_col']
+                    contributions[channel_name] = contrib
             
             # 2. Promotion contributions
             if promo_col and promo_features:
                 promo_contrib = 0
                 for promo_feat in promo_features:
-                    if promo_feat in X_test.columns:
-                        beta = float(model.params.get(promo_feat, 0.0))
+                    if promo_feat in X_test.columns and promo_feat in model.params.index:
+                        beta = float(model.params[promo_feat])
                         promo_contrib += np.sum(X_test[promo_feat].values * beta)
                 if promo_contrib != 0:
                     contributions['Promotions'] = promo_contrib
@@ -1013,8 +1014,8 @@ elif tab_selection == "📈 Results & Insights":
             if hasattr(st.session_state, 'control_features') and st.session_state.control_features:
                 control_contrib = 0
                 for ctrl_feat in st.session_state.control_features:
-                    if ctrl_feat in X_test.columns:
-                        beta = float(model.params.get(ctrl_feat, 0.0))
+                    if ctrl_feat in X_test.columns and ctrl_feat in model.params.index:
+                        beta = float(model.params[ctrl_feat])
                         control_contrib += np.sum(X_test[ctrl_feat].values * beta)
                 if control_contrib != 0:
                     contributions['Control Variables'] = control_contrib
@@ -1023,8 +1024,8 @@ elif tab_selection == "📈 Results & Insights":
             if control_cols:
                 other_control_contrib = 0
                 for ctrl_col in control_cols:
-                    if ctrl_col in X_test.columns:
-                        beta = float(model.params.get(ctrl_col, 0.0))
+                    if ctrl_col in X_test.columns and ctrl_col in model.params.index:
+                        beta = float(model.params[ctrl_col])
                         other_control_contrib += np.sum(X_test[ctrl_col].values * beta)
                 if other_control_contrib != 0:
                     contributions['Other Controls'] = other_control_contrib
@@ -1034,14 +1035,16 @@ elif tab_selection == "📈 Results & Insights":
             if seasonality_cols:
                 seasonality_contrib = 0
                 for seas_col in seasonality_cols:
-                    beta = float(model.params.get(seas_col, 0.0))
-                    seasonality_contrib += np.sum(X_test[seas_col].values * beta)
+                    if seas_col in model.params.index:
+                        beta = float(model.params[seas_col])
+                        seasonality_contrib += np.sum(X_test[seas_col].values * beta)
                 if seasonality_contrib != 0:
                     contributions['Seasonality'] = seasonality_contrib
             
             # 6. Baseline
-            baseline = float(model.params.get('const', 0.0)) * len(X_test)
-            contributions['Baseline'] = baseline
+            if 'const' in model.params.index:
+                baseline = float(model.params['const']) * len(X_test)
+                contributions['Baseline'] = baseline
             
             # 7. Calculate residual (unexplained variance)
             total_predicted = sum(contributions.values())
@@ -1281,7 +1284,11 @@ elif tab_selection == "📈 Results & Insights":
             
             for feat in feat_cols:
                 channel_name = meta[feat]['spend_col']
-                beta = float(model.params.get(feat, 0.0))
+                
+                if feat not in model.params.index:
+                    continue
+                    
+                beta = float(model.params[feat])
                 contrib = np.sum(X_test[feat].values * beta)
                 total_spend = test_df[channel_name].sum()
                 
@@ -1546,7 +1553,11 @@ elif tab_selection == "📈 Results & Insights":
             
             feat = [f for f in feat_cols if meta[f]['spend_col'] == selected_channel][0]
             
-            beta = float(model.params.get(feat, 0.0))
+            if feat not in model.params.index:
+                st.error(f"⚠️ Coefficient not found for {selected_channel}")
+                st.stop()
+            
+            beta = float(model.params[feat])
             # Get gamma-based Hill parameters (NEW)
             alpha = meta[feat]['alpha']
             gamma = meta[feat]['gamma']
@@ -1679,20 +1690,28 @@ elif tab_selection == "📈 Results & Insights":
             if st.button("🚀 Run Optimization", type="primary", width='stretch'):
                 with st.spinner("Running optimization..."):
                     try:
-                        baseline_contrib = float(model.params.get('const', 0.0)) * len(test_df)
+                        # Calculate baseline contribution
+                        if 'const' in model.params.index:
+                            baseline_contrib = float(model.params['const']) * len(test_df)
+                        else:
+                            baseline_contrib = 0
                         
+                        # Calculate seasonality contribution
                         seasonality_cols = [col for col in X_test.columns if 'dow_' in col or 'month_' in col]
                         seasonality_contrib = 0
                         for col in seasonality_cols:
-                            if col in X_test.columns and col in model.params:
+                            if col in X_test.columns and col in model.params.index:
                                 seasonality_contrib += (X_test[col].values * float(model.params[col])).sum()
                         
                         def mmm_objective(channel_totals):
                             total_revenue = baseline_contrib + seasonality_contrib
                             
                             for i, feat in enumerate(feat_cols):
+                                if feat not in model.params.index:
+                                    continue
+                                    
                                 channel_name = meta[feat]['spend_col']
-                                beta = float(model.params.get(feat, 0.0))
+                                beta = float(model.params[feat])
                                 # Get gamma-based Hill parameters (NEW)
                                 alpha = meta[feat]['alpha']
                                 gamma = meta[feat]['gamma']
