@@ -995,7 +995,11 @@ elif tab_selection == "📈 Results & Insights":
             # 1. Media channel contributions
             for feat in feat_cols:
                 if feat in model.params.index:
-                    beta = float(model.params[feat])
+                    try:
+                        beta = float(model.params.at[feat])
+                    except:
+                        beta_val = model.params.loc[feat]
+                        beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
                     contrib = np.sum(X_test[feat].values * beta)
                     channel_name = meta[feat]['spend_col']
                     contributions[channel_name] = contrib
@@ -1005,7 +1009,11 @@ elif tab_selection == "📈 Results & Insights":
                 promo_contrib = 0
                 for promo_feat in promo_features:
                     if promo_feat in X_test.columns and promo_feat in model.params.index:
-                        beta = float(model.params[promo_feat])
+                        try:
+                            beta = float(model.params.at[promo_feat])
+                        except:
+                            beta_val = model.params.loc[promo_feat]
+                            beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
                         promo_contrib += np.sum(X_test[promo_feat].values * beta)
                 if promo_contrib != 0:
                     contributions['Promotions'] = promo_contrib
@@ -1015,7 +1023,13 @@ elif tab_selection == "📈 Results & Insights":
                 control_contrib = 0
                 for ctrl_feat in st.session_state.control_features:
                     if ctrl_feat in X_test.columns and ctrl_feat in model.params.index:
-                        beta = float(model.params[ctrl_feat])
+                        try:
+                            # Use .at[] for guaranteed scalar access
+                            beta = float(model.params.at[ctrl_feat])
+                        except:
+                            # Fallback: use .loc[] and extract first element
+                            beta_val = model.params.loc[ctrl_feat]
+                            beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
                         control_contrib += np.sum(X_test[ctrl_feat].values * beta)
                 if control_contrib != 0:
                     contributions['Control Variables'] = control_contrib
@@ -1025,7 +1039,11 @@ elif tab_selection == "📈 Results & Insights":
                 other_control_contrib = 0
                 for ctrl_col in control_cols:
                     if ctrl_col in X_test.columns and ctrl_col in model.params.index:
-                        beta = float(model.params[ctrl_col])
+                        try:
+                            beta = float(model.params.at[ctrl_col])
+                        except:
+                            beta_val = model.params.loc[ctrl_col]
+                            beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
                         other_control_contrib += np.sum(X_test[ctrl_col].values * beta)
                 if other_control_contrib != 0:
                     contributions['Other Controls'] = other_control_contrib
@@ -1036,14 +1054,22 @@ elif tab_selection == "📈 Results & Insights":
                 seasonality_contrib = 0
                 for seas_col in seasonality_cols:
                     if seas_col in model.params.index:
-                        beta = float(model.params[seas_col])
+                        try:
+                            beta = float(model.params.at[seas_col])
+                        except:
+                            beta_val = model.params.loc[seas_col]
+                            beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
                         seasonality_contrib += np.sum(X_test[seas_col].values * beta)
                 if seasonality_contrib != 0:
                     contributions['Seasonality'] = seasonality_contrib
             
             # 6. Baseline
             if 'const' in model.params.index:
-                baseline = float(model.params['const']) * len(X_test)
+                try:
+                    baseline = float(model.params.at['const']) * len(X_test)
+                except:
+                    beta_val = model.params.loc['const']
+                    baseline = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val) * len(X_test)
                 contributions['Baseline'] = baseline
             
             # 7. Calculate residual (unexplained variance)
@@ -1287,8 +1313,13 @@ elif tab_selection == "📈 Results & Insights":
                 
                 if feat not in model.params.index:
                     continue
+                
+                try:
+                    beta = float(model.params.at[feat])
+                except:
+                    beta_val = model.params.loc[feat]
+                    beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
                     
-                beta = float(model.params[feat])
                 contrib = np.sum(X_test[feat].values * beta)
                 total_spend = test_df[channel_name].sum()
                 
@@ -1449,10 +1480,20 @@ elif tab_selection == "📈 Results & Insights":
             for feat in feat_cols:
                 channel_name = meta[feat]['spend_col']
                 if feat in model.params.index:
-                    coef = model.params[feat]
-                    ci_lower = conf_intervals.loc[feat, 0]
-                    ci_upper = conf_intervals.loc[feat, 1]
-                    p_value = model.pvalues[feat]
+                    try:
+                        coef = float(model.params.at[feat])
+                    except:
+                        coef_val = model.params.loc[feat]
+                        coef = float(coef_val.iloc[0] if hasattr(coef_val, 'iloc') else coef_val)
+                    
+                    ci_lower = float(conf_intervals.loc[feat, 0])
+                    ci_upper = float(conf_intervals.loc[feat, 1])
+                    
+                    try:
+                        p_value = float(model.pvalues.at[feat])
+                    except:
+                        p_val = model.pvalues.loc[feat]
+                        p_value = float(p_val.iloc[0] if hasattr(p_val, 'iloc') else p_val)
                     
                     # Check if significant
                     is_significant = (ci_lower > 0 or ci_upper < 0)
@@ -1557,7 +1598,12 @@ elif tab_selection == "📈 Results & Insights":
                 st.error(f"⚠️ Coefficient not found for {selected_channel}")
                 st.stop()
             
-            beta = float(model.params[feat])
+            try:
+                beta = float(model.params.at[feat])
+            except:
+                beta_val = model.params.loc[feat]
+                beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
+                
             # Get gamma-based Hill parameters (NEW)
             alpha = meta[feat]['alpha']
             gamma = meta[feat]['gamma']
@@ -1692,7 +1738,11 @@ elif tab_selection == "📈 Results & Insights":
                     try:
                         # Calculate baseline contribution
                         if 'const' in model.params.index:
-                            baseline_contrib = float(model.params['const']) * len(test_df)
+                            try:
+                                baseline_contrib = float(model.params.at['const']) * len(test_df)
+                            except:
+                                beta_val = model.params.loc['const']
+                                baseline_contrib = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val) * len(test_df)
                         else:
                             baseline_contrib = 0
                         
@@ -1701,7 +1751,12 @@ elif tab_selection == "📈 Results & Insights":
                         seasonality_contrib = 0
                         for col in seasonality_cols:
                             if col in X_test.columns and col in model.params.index:
-                                seasonality_contrib += (X_test[col].values * float(model.params[col])).sum()
+                                try:
+                                    beta = float(model.params.at[col])
+                                except:
+                                    beta_val = model.params.loc[col]
+                                    beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
+                                seasonality_contrib += (X_test[col].values * beta).sum()
                         
                         def mmm_objective(channel_totals):
                             total_revenue = baseline_contrib + seasonality_contrib
@@ -1709,9 +1764,14 @@ elif tab_selection == "📈 Results & Insights":
                             for i, feat in enumerate(feat_cols):
                                 if feat not in model.params.index:
                                     continue
+                                
+                                try:
+                                    beta = float(model.params.at[feat])
+                                except:
+                                    beta_val = model.params.loc[feat]
+                                    beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
                                     
                                 channel_name = meta[feat]['spend_col']
-                                beta = float(model.params[feat])
                                 # Get gamma-based Hill parameters (NEW)
                                 alpha = meta[feat]['alpha']
                                 gamma = meta[feat]['gamma']
@@ -1903,8 +1963,30 @@ elif tab_selection == "📈 Results & Insights":
             
             coef_data = []
             for param in model.params.index:
-                # Extract scalar values to avoid Series ambiguity
-                p_val = float(model.pvalues[param])
+                # Extract scalar values to avoid Series ambiguity - use .at[] accessor
+                try:
+                    p_val = float(model.pvalues.at[param])
+                except:
+                    p_val_temp = model.pvalues.loc[param]
+                    p_val = float(p_val_temp.iloc[0] if hasattr(p_val_temp, 'iloc') else p_val_temp)
+                
+                try:
+                    coef = float(model.params.at[param])
+                except:
+                    coef_temp = model.params.loc[param]
+                    coef = float(coef_temp.iloc[0] if hasattr(coef_temp, 'iloc') else coef_temp)
+                
+                try:
+                    std_err = float(model.bse.at[param])
+                except:
+                    se_temp = model.bse.loc[param]
+                    std_err = float(se_temp.iloc[0] if hasattr(se_temp, 'iloc') else se_temp)
+                
+                try:
+                    t_stat = float(model.tvalues.at[param])
+                except:
+                    t_temp = model.tvalues.loc[param]
+                    t_stat = float(t_temp.iloc[0] if hasattr(t_temp, 'iloc') else t_temp)
                 
                 # Determine significance level
                 if p_val < 0.001:
@@ -1918,12 +2000,12 @@ elif tab_selection == "📈 Results & Insights":
                 
                 coef_data.append({
                     'Variable': param,
-                    'Coefficient': float(model.params[param]),
-                    'Std Error': float(model.bse[param]),
+                    'Coefficient': coef,
+                    'Std Error': std_err,
                     'CI Lower (2.5%)': float(conf_intervals.loc[param, 0]),
                     'CI Upper (97.5%)': float(conf_intervals.loc[param, 1]),
                     'CI Width': float(conf_intervals.loc[param, 1] - conf_intervals.loc[param, 0]),
-                    'T-Statistic': float(model.tvalues[param]),
+                    'T-Statistic': t_stat,
                     'P-Value': p_val,
                     'Significant': sig
                 })
