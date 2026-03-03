@@ -293,7 +293,7 @@ if tab_selection == "📤 Data Upload":
                 st.success(f"✅ KPI data uploaded successfully! ({len(kpi_df)} rows)")
                 
                 with st.expander("Preview KPI Data"):
-                    st.dataframe(kpi_df.head(10), use_container_width=True)
+                    st.dataframe(kpi_df.head(10), width='stretch')
                     st.markdown("**Data Info:**")
                     st.write(f"- Columns: {', '.join(kpi_df.columns.tolist())}")
                     st.write(f"- Date range: {kpi_df.iloc[:, 0].min()} to {kpi_df.iloc[:, 0].max()}")
@@ -324,7 +324,7 @@ if tab_selection == "📤 Data Upload":
                     st.success(f"✅ {channel_name} uploaded ({len(channel_df)} rows)")
                     
                     with st.expander(f"Preview {channel_name}"):
-                        st.dataframe(channel_df.head(5), use_container_width=True)
+                        st.dataframe(channel_df.head(5), width='stretch')
                         
                 except Exception as e:
                     st.error(f"Error loading {channel_name}: {str(e)}")
@@ -358,7 +358,7 @@ if tab_selection == "📤 Data Upload":
             st.success(f"✅ Promotion data uploaded! ({len(promo_df)} rows)")
             
             with st.expander("Preview Promotion Data"):
-                st.dataframe(promo_df.head(10), use_container_width=True)
+                st.dataframe(promo_df.head(10), width='stretch')
                 
                 promo_col = promo_df.columns[1]
                 if promo_df[promo_col].dtype == 'object':
@@ -423,7 +423,7 @@ if tab_selection == "📤 Data Upload":
                 st.success(f"✅ {control_name} uploaded! ({len(control_df)} rows)")
                 
                 with st.expander(f"Preview {control_name}"):
-                    st.dataframe(control_df.head(5), use_container_width=True)
+                    st.dataframe(control_df.head(5), width='stretch')
                     
                     # Show data types
                     st.markdown("**Detected variable types:**")
@@ -438,7 +438,7 @@ if tab_selection == "📤 Data Upload":
     
     # Combine data button
     st.markdown("---")
-    if st.button("🔗 Combine All Data", type="primary", use_container_width=True):
+    if st.button("🔗 Combine All Data", type="primary", width='stretch'):
         if st.session_state.kpi_data is None:
             st.error("❌ Please upload KPI data first!")
         elif len(st.session_state.media_data) == 0:
@@ -585,11 +585,11 @@ elif tab_selection == "🔍 Data Overview":
         if numeric_cols:
             st.dataframe(
                 df.style.background_gradient(subset=numeric_cols, cmap='Blues'),
-                use_container_width=True,
+                width='stretch',
                 height=400
             )
         else:
-            st.dataframe(df, use_container_width=True, height=400)
+            st.dataframe(df, width='stretch', height=400)
         
         csv = df.to_csv(index=False)
         st.download_button(
@@ -606,7 +606,7 @@ elif tab_selection == "🔍 Data Overview":
         
         with col1:
             st.markdown("**Numerical Summary:**")
-            st.dataframe(df.describe(), use_container_width=True)
+            st.dataframe(df.describe(), width='stretch')
         
         with col2:
             st.markdown("**Missing Values:**")
@@ -615,7 +615,7 @@ elif tab_selection == "🔍 Data Overview":
                 'Missing Count': df.isnull().sum().values,
                 'Missing %': (df.isnull().sum().values / len(df) * 100).round(2)
             })
-            st.dataframe(missing_df, use_container_width=True)
+            st.dataframe(missing_df, width='stretch')
         
         st.markdown("---")
         st.markdown("### 🔥 Correlation Heatmap")
@@ -739,7 +739,7 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
             )
         
         st.markdown("---")
-        if st.button("🚀 Run Marketing Mix Model", type="primary", use_container_width=True):
+        if st.button("🚀 Run Marketing Mix Model", type="primary", width='stretch'):
             with st.spinner("Training Marketing Mix Model..."):
                 try:
                     st.info("Step 1/7: Preparing daily data...")
@@ -970,7 +970,7 @@ elif tab_selection == "📈 Results & Insights":
         control_cols = st.session_state.control_cols
         
         result_tabs = st.tabs([
-            "📊 Channel Contribution",
+            "📊 Revenue Decomposition",
             "💰 ROI Analysis + DECOMP.RSSD",
             "📈 Response Curves",
             "🎯 Budget Optimization",
@@ -979,40 +979,124 @@ elif tab_selection == "📈 Results & Insights":
         
         # Tab 1: Channel Contribution
         with result_tabs[0]:
-            st.markdown("### Channel Contribution to Revenue")
+            st.markdown("### Complete Revenue Decomposition")
+            
+            st.info("""
+            This shows how each component contributes to total revenue:
+            - **Media Channels**: Paid advertising effect
+            - **Promotions**: Campaign/discount effects
+            - **Control Variables**: External factors (weather, events, inflation, etc.)
+            - **Seasonality**: Day-of-week and monthly patterns
+            - **Baseline**: Base revenue without any effects
+            """)
             
             contributions = {}
+            
+            # 1. Media channel contributions
             for feat in feat_cols:
                 beta = float(model.params.get(feat, 0.0))
                 contrib = np.sum(X_test[feat].values * beta)
                 channel_name = meta[feat]['spend_col']
                 contributions[channel_name] = contrib
             
+            # 2. Promotion contributions
             if promo_col and promo_features:
                 promo_contrib = 0
                 for promo_feat in promo_features:
                     if promo_feat in X_test.columns:
                         beta = float(model.params.get(promo_feat, 0.0))
                         promo_contrib += np.sum(X_test[promo_feat].values * beta)
-                contributions['Promotion'] = promo_contrib
+                if promo_contrib != 0:
+                    contributions['Promotions'] = promo_contrib
             
+            # 3. Control variable contributions (NEW)
+            if hasattr(st.session_state, 'control_features') and st.session_state.control_features:
+                control_contrib = 0
+                for ctrl_feat in st.session_state.control_features:
+                    if ctrl_feat in X_test.columns:
+                        beta = float(model.params.get(ctrl_feat, 0.0))
+                        control_contrib += np.sum(X_test[ctrl_feat].values * beta)
+                if control_contrib != 0:
+                    contributions['Control Variables'] = control_contrib
+            
+            # 4. Other control columns (original controls selected by user)
+            if control_cols:
+                other_control_contrib = 0
+                for ctrl_col in control_cols:
+                    if ctrl_col in X_test.columns:
+                        beta = float(model.params.get(ctrl_col, 0.0))
+                        other_control_contrib += np.sum(X_test[ctrl_col].values * beta)
+                if other_control_contrib != 0:
+                    contributions['Other Controls'] = other_control_contrib
+            
+            # 5. Seasonality contributions (NEW)
+            seasonality_cols = [col for col in X_test.columns if 'dow_' in col or 'month_' in col]
+            if seasonality_cols:
+                seasonality_contrib = 0
+                for seas_col in seasonality_cols:
+                    beta = float(model.params.get(seas_col, 0.0))
+                    seasonality_contrib += np.sum(X_test[seas_col].values * beta)
+                if seasonality_contrib != 0:
+                    contributions['Seasonality'] = seasonality_contrib
+            
+            # 6. Baseline
             baseline = float(model.params.get('const', 0.0)) * len(X_test)
             contributions['Baseline'] = baseline
             
+            # 7. Calculate residual (unexplained variance)
+            total_predicted = sum(contributions.values())
+            total_actual = np.sum(y_test)
+            residual = total_actual - total_predicted
+            if abs(residual) > 1:  # Only show if meaningful
+                contributions['Residual'] = residual
+            
+            # Create contribution dataframe
             contrib_df = pd.DataFrame.from_dict(contributions, orient='index', columns=['Contribution'])
-            contrib_df['Contribution %'] = 100 * contrib_df['Contribution'] / contrib_df['Contribution'].sum()
+            contrib_df['Contribution %'] = 100 * contrib_df['Contribution'] / total_actual
             contrib_df = contrib_df.sort_values('Contribution', ascending=False)
             
+            # Summary metrics
+            st.markdown("---")
+            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+            
+            with metric_col1:
+                st.metric("Total Actual Revenue", f"${total_actual:,.0f}")
+            with metric_col2:
+                st.metric("Total Predicted", f"${total_predicted:,.0f}")
+            with metric_col3:
+                media_contrib = sum([v for k, v in contributions.items() if k not in ['Baseline', 'Seasonality', 'Promotions', 'Control Variables', 'Other Controls', 'Residual']])
+                st.metric("Media Contribution", f"${media_contrib:,.0f}")
+            with metric_col4:
+                explained = (1 - abs(residual) / total_actual) * 100
+                st.metric("Explained Variance", f"{explained:.1f}%")
+            
+            st.markdown("---")
+            
+            # Display tables and charts
             col1, col2 = st.columns([1, 1])
             
             with col1:
-                st.markdown("**Contribution Summary:**")
+                st.markdown("**Complete Contribution Breakdown:**")
                 st.dataframe(
-                    contrib_df.style.format({'Contribution': '{:,.0f}', 'Contribution %': '{:.1f}%'}),
-                    use_container_width=True
+                    contrib_df.style.format({
+                        'Contribution': '{:,.0f}', 
+                        'Contribution %': '{:.1f}%'
+                    }).background_gradient(subset=['Contribution'], cmap='RdYlGn'),
+                    width='stretch'
+                )
+                
+                # Download button
+                csv_contrib = contrib_df.to_csv()
+                st.download_button(
+                    label="📥 Download Contribution Data",
+                    data=csv_contrib,
+                    file_name=f"contribution_analysis_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    key="download_contrib"
                 )
             
             with col2:
+                # Pie chart - only positive contributions
                 positive_contrib = contrib_df[contrib_df['Contribution'] > 0].copy()
                 
                 if len(positive_contrib) > 0:
@@ -1029,17 +1113,165 @@ elif tab_selection == "📈 Results & Insights":
                     st.warning("No positive contributions")
             
             st.markdown("---")
+            
+            # Horizontal bar chart
             fig, ax = plt.subplots(figsize=(12, 6))
             contrib_df['Contribution'].plot(kind='barh', ax=ax, color='steelblue')
-            ax.set_xlabel('Revenue Contribution', fontsize=12)
-            ax.set_title('Channel Contribution', fontsize=14, fontweight='bold')
+            ax.set_xlabel('Revenue Contribution ($)', fontsize=12)
+            ax.set_title('All Components Contribution', fontsize=14, fontweight='bold')
             ax.grid(axis='x', alpha=0.3)
+            ax.axvline(x=0, color='red', linestyle='--', linewidth=1, alpha=0.5)
             
             for i, v in enumerate(contrib_df['Contribution']):
-                ax.text(v, i, f' {v:,.0f}', va='center', fontsize=10)
+                ax.text(v, i, f' ${v:,.0f}', va='center', fontsize=10)
             
             plt.tight_layout()
             st.pyplot(fig)
+            
+            # Waterfall chart showing revenue build-up
+            st.markdown("---")
+            st.markdown("### 📊 Revenue Waterfall Analysis")
+            st.info("This shows how each component builds up to total revenue")
+            
+            # Prepare waterfall data (order: Baseline → Media → Promo → Controls → Seasonality → Residual)
+            waterfall_order = []
+            waterfall_values = []
+            
+            # Start with baseline
+            if 'Baseline' in contributions:
+                waterfall_order.append('Baseline')
+                waterfall_values.append(contributions['Baseline'])
+            
+            # Add media channels
+            for ch in contrib_df.index:
+                if ch not in ['Baseline', 'Promotions', 'Control Variables', 'Other Controls', 'Seasonality', 'Residual']:
+                    waterfall_order.append(ch)
+                    waterfall_values.append(contributions[ch])
+            
+            # Add promotions
+            if 'Promotions' in contributions:
+                waterfall_order.append('Promotions')
+                waterfall_values.append(contributions['Promotions'])
+            
+            # Add control variables
+            if 'Control Variables' in contributions:
+                waterfall_order.append('Control Variables')
+                waterfall_values.append(contributions['Control Variables'])
+            
+            if 'Other Controls' in contributions:
+                waterfall_order.append('Other Controls')
+                waterfall_values.append(contributions['Other Controls'])
+            
+            # Add seasonality
+            if 'Seasonality' in contributions:
+                waterfall_order.append('Seasonality')
+                waterfall_values.append(contributions['Seasonality'])
+            
+            # Add residual
+            if 'Residual' in contributions:
+                waterfall_order.append('Residual')
+                waterfall_values.append(contributions['Residual'])
+            
+            # Create waterfall chart
+            fig, ax = plt.subplots(figsize=(14, 7))
+            
+            # Calculate cumulative values for waterfall
+            cumulative = [0]
+            for val in waterfall_values:
+                cumulative.append(cumulative[-1] + val)
+            
+            # Plot bars
+            colors = []
+            for i, (label, val) in enumerate(zip(waterfall_order, waterfall_values)):
+                # Color coding
+                if label == 'Baseline':
+                    color = 'gray'
+                elif label == 'Residual':
+                    color = 'orange' if val < 0 else 'lightgreen'
+                elif label in ['Seasonality', 'Control Variables', 'Other Controls']:
+                    color = 'lightblue'
+                elif label == 'Promotions':
+                    color = 'gold'
+                else:  # Media channels
+                    color = 'steelblue'
+                
+                colors.append(color)
+                
+                # Draw bar from cumulative[i] to cumulative[i+1]
+                bottom = cumulative[i]
+                height = val
+                
+                ax.bar(i, height, bottom=bottom, color=color, edgecolor='black', linewidth=0.5)
+                
+                # Add value label
+                y_pos = bottom + height/2
+                ax.text(i, y_pos, f'${val:,.0f}', ha='center', va='center', 
+                       fontweight='bold', fontsize=9, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            
+            # Add total line
+            ax.plot([-0.5, len(waterfall_order)-0.5], [total_actual, total_actual], 
+                   'r--', linewidth=2, label=f'Total Actual: ${total_actual:,.0f}')
+            
+            # Formatting
+            ax.set_xticks(range(len(waterfall_order)))
+            ax.set_xticklabels(waterfall_order, rotation=45, ha='right')
+            ax.set_ylabel('Revenue ($)', fontsize=12, fontweight='bold')
+            ax.set_title('Revenue Waterfall: How Components Build to Total', fontsize=14, fontweight='bold')
+            ax.legend(loc='upper left')
+            ax.grid(axis='y', alpha=0.3)
+            
+            # Add zero line
+            ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5, alpha=0.3)
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Component summary
+            st.markdown("---")
+            st.markdown("### 📋 Component Summary")
+            
+            comp_col1, comp_col2, comp_col3 = st.columns(3)
+            
+            with comp_col1:
+                st.markdown("**🎯 Marketing Effectiveness:**")
+                media_total = sum([v for k, v in contributions.items() 
+                                  if k not in ['Baseline', 'Seasonality', 'Promotions', 'Control Variables', 'Other Controls', 'Residual']])
+                media_pct = (media_total / total_actual) * 100
+                st.metric("Media Contribution", f"${media_total:,.0f}", f"{media_pct:.1f}% of total")
+            
+            with comp_col2:
+                st.markdown("**🎁 Promotional Impact:**")
+                promo_total = contributions.get('Promotions', 0)
+                promo_pct = (promo_total / total_actual) * 100 if total_actual > 0 else 0
+                st.metric("Promotions", f"${promo_total:,.0f}", f"{promo_pct:.1f}% of total")
+            
+            with comp_col3:
+                st.markdown("**📊 External Factors:**")
+                control_total = contributions.get('Control Variables', 0) + contributions.get('Other Controls', 0)
+                control_pct = (control_total / total_actual) * 100 if total_actual > 0 else 0
+                st.metric("Control Variables", f"${control_total:,.0f}", f"{control_pct:.1f}% of total")
+            
+            st.markdown("---")
+            
+            comp_col4, comp_col5, comp_col6 = st.columns(3)
+            
+            with comp_col4:
+                st.markdown("**📅 Seasonal Patterns:**")
+                seas_total = contributions.get('Seasonality', 0)
+                seas_pct = (seas_total / total_actual) * 100 if total_actual > 0 else 0
+                st.metric("Seasonality", f"${seas_total:,.0f}", f"{seas_pct:.1f}% of total")
+            
+            with comp_col5:
+                st.markdown("**🏠 Base Business:**")
+                base_total = contributions.get('Baseline', 0)
+                base_pct = (base_total / total_actual) * 100 if total_actual > 0 else 0
+                st.metric("Baseline", f"${base_total:,.0f}", f"{base_pct:.1f}% of total")
+            
+            with comp_col6:
+                st.markdown("**❓ Unexplained:**")
+                resid_total = contributions.get('Residual', 0)
+                resid_pct = (abs(resid_total) / total_actual) * 100 if total_actual > 0 else 0
+                st.metric("Residual", f"${resid_total:,.0f}", f"{resid_pct:.1f}% unexplained")
         
         # Tab 2: ROI Analysis + DECOMP.RSSD
         with result_tabs[1]:
@@ -1097,7 +1329,7 @@ elif tab_selection == "📈 Results & Insights":
                     'ROI (iROAS)': '{:.2f}',
                     'Marginal ROI': '{:.2f}'
                 }).background_gradient(subset=['ROI (iROAS)', 'Marginal ROI'], cmap='RdYlGn'),
-                use_container_width=True
+                width='stretch'
             )
             
             st.markdown("---")
@@ -1169,7 +1401,7 @@ elif tab_selection == "📈 Results & Insights":
                         'Effect Share (%)': '{:.2f}',
                         'Difference (pp)': '{:+.2f}'
                     }).background_gradient(subset=['Difference (pp)'], cmap='RdYlGn', vmin=-10, vmax=10),
-                    use_container_width=True
+                    width='stretch'
                 )
             
             # Visualization
@@ -1237,7 +1469,7 @@ elif tab_selection == "📈 Results & Insights":
                     'P-Value': '{:.4f}'
                 }).apply(lambda x: ['background-color: #d4edda' if v == '✅ Yes' else 'background-color: #fff3cd' 
                                      for v in x], subset=['Significant']),
-                use_container_width=True
+                width='stretch'
             )
             
             # Coefficient plot for media channels
@@ -1444,7 +1676,7 @@ elif tab_selection == "📈 Results & Insights":
                 budget_change = ((new_budget - current_budget) / current_budget) * 100
                 st.metric("Budget Change", f"{budget_change:+.1f}%")
             
-            if st.button("🚀 Run Optimization", type="primary", use_container_width=True):
+            if st.button("🚀 Run Optimization", type="primary", width='stretch'):
                 with st.spinner("Running optimization..."):
                     try:
                         baseline_contrib = float(model.params.get('const', 0.0)) * len(test_df)
@@ -1530,7 +1762,7 @@ elif tab_selection == "📈 Results & Insights":
                                     'Change': '{:+,.0f}',
                                     'Change %': '{:+.1f}%'
                                 }).background_gradient(subset=['Change %'], cmap='RdYlGn', vmin=-50, vmax=50),
-                                use_container_width=True
+                                width='stretch'
                             )
                             
                             st.markdown("---")
@@ -1629,14 +1861,14 @@ elif tab_selection == "📈 Results & Insights":
                 
                 st.dataframe(
                     vif_data.style.applymap(vif_color, subset=['VIF']).format({'VIF': '{:.2f}'}),
-                    use_container_width=True
+                    width='stretch'
                 )
                 
                 # VIF Summary
                 high_vif = vif_data[vif_data['VIF'] > 10]
                 if len(high_vif) > 0:
                     st.error(f"❌ {len(high_vif)} variable(s) with VIF > 10 detected!")
-                    st.dataframe(high_vif, use_container_width=True)
+                    st.dataframe(high_vif, width='stretch')
                 else:
                     st.success("✅ No high multicollinearity detected")
                 
@@ -1652,16 +1884,29 @@ elif tab_selection == "📈 Results & Insights":
             
             coef_data = []
             for param in model.params.index:
+                # Extract scalar values to avoid Series ambiguity
+                p_val = float(model.pvalues[param])
+                
+                # Determine significance level
+                if p_val < 0.001:
+                    sig = '***'
+                elif p_val < 0.01:
+                    sig = '**'
+                elif p_val < 0.05:
+                    sig = '*'
+                else:
+                    sig = ''
+                
                 coef_data.append({
                     'Variable': param,
-                    'Coefficient': model.params[param],
-                    'Std Error': model.bse[param],
-                    'CI Lower (2.5%)': conf_intervals.loc[param, 0],
-                    'CI Upper (97.5%)': conf_intervals.loc[param, 1],
-                    'CI Width': conf_intervals.loc[param, 1] - conf_intervals.loc[param, 0],
-                    'T-Statistic': model.tvalues[param],
-                    'P-Value': model.pvalues[param],
-                    'Significant': '***' if model.pvalues[param] < 0.001 else ('**' if model.pvalues[param] < 0.01 else ('*' if model.pvalues[param] < 0.05 else ''))
+                    'Coefficient': float(model.params[param]),
+                    'Std Error': float(model.bse[param]),
+                    'CI Lower (2.5%)': float(conf_intervals.loc[param, 0]),
+                    'CI Upper (97.5%)': float(conf_intervals.loc[param, 1]),
+                    'CI Width': float(conf_intervals.loc[param, 1] - conf_intervals.loc[param, 0]),
+                    'T-Statistic': float(model.tvalues[param]),
+                    'P-Value': p_val,
+                    'Significant': sig
                 })
             
             coef_df = pd.DataFrame(coef_data)
@@ -1676,7 +1921,7 @@ elif tab_selection == "📈 Results & Insights":
                     'T-Statistic': '{:.4f}',
                     'P-Value': '{:.4f}'
                 }).background_gradient(subset=['Coefficient'], cmap='coolwarm', vmin=-1, vmax=1),
-                use_container_width=True
+                width='stretch'
             )
             
             st.caption("Significance: *** p<0.001, ** p<0.01, * p<0.05")
