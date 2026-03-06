@@ -769,6 +769,8 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                     
                     # Process control variables (NEW)
                     control_features = []
+                    original_control_cols = []  # Track original columns to drop
+                    
                     if hasattr(st.session_state, 'control_data') and st.session_state.control_data:
                         st.info(f"Step 3b/7: Processing {len(st.session_state.control_data)} control variable(s)...")
                         
@@ -777,6 +779,8 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                             control_vars = st.session_state.control_data[control_name]
                             for col in control_vars.columns[1:]:  # Skip date column
                                 if col in daily_df.columns:
+                                    original_control_cols.append(col)  # Track for removal
+                                    
                                     if daily_df[col].dtype == 'object' or daily_df[col].dtype.name == 'category':
                                         # Categorical - convert to dummies
                                         ctrl_dummies = pd.get_dummies(daily_df[col], prefix=f'{col}', drop_first=True)
@@ -785,6 +789,9 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                                     else:
                                         # Numeric - use as is
                                         control_features.append(col)
+                        
+                        # Drop original control variable columns to avoid duplicates
+                        daily_df = daily_df.drop(columns=original_control_cols, errors='ignore')
                         
                         st.session_state.control_features = control_features
                     else:
@@ -834,7 +841,14 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                     seasonality_cols = [col for col in daily_df.columns if 'dow_' in col or 'month_' in col]
                     
                     # Combine promo + control + other control cols
-                    all_control_cols = control_cols + promo_features + control_features
+                    # Deduplicate while preserving order
+                    all_control_cols_raw = control_cols + promo_features + control_features
+                    all_control_cols = []
+                    seen = set()
+                    for col in all_control_cols_raw:
+                        if col not in seen and col in daily_df.columns:
+                            all_control_cols.append(col)
+                            seen.add(col)
                     
                     for ctrl_col in all_control_cols:
                         if ctrl_col in train_df.columns:
@@ -858,6 +872,13 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                         test_df[all_control_cols] if all_control_cols else pd.DataFrame(index=test_df.index),
                         test_df[seasonality_cols]
                     ], axis=1).astype('float64')
+                    
+                    # Check for and remove duplicate columns
+                    if X_train.columns.duplicated().any():
+                        duplicate_cols = X_train.columns[X_train.columns.duplicated()].tolist()
+                        st.warning(f"⚠️ Removing {len(duplicate_cols)} duplicate column(s): {', '.join(duplicate_cols)}")
+                        X_train = X_train.loc[:, ~X_train.columns.duplicated()]
+                        X_test = X_test.loc[:, ~X_test.columns.duplicated()]
                     
                     y_train = train_df[target_col].values.astype(float)
                     y_test = test_df[target_col].values.astype(float)
@@ -1486,8 +1507,21 @@ elif tab_selection == "📈 Results & Insights":
                         coef_val = model.params.loc[feat]
                         coef = float(coef_val.iloc[0] if hasattr(coef_val, 'iloc') else coef_val)
                     
-                    ci_lower = float(conf_intervals.loc[feat, 0])
-                    ci_upper = float(conf_intervals.loc[feat, 1])
+                    try:
+                        ci_lower = float(conf_intervals.at[feat, 0])
+                    except:
+                        try:
+                            ci_lower = float(conf_intervals.loc[feat].iloc[0])
+                        except:
+                            ci_lower = 0.0
+                    
+                    try:
+                        ci_upper = float(conf_intervals.at[feat, 1])
+                    except:
+                        try:
+                            ci_upper = float(conf_intervals.loc[feat].iloc[1])
+                        except:
+                            ci_upper = 0.0
                     
                     try:
                         p_value = float(model.pvalues.at[feat])
@@ -1921,34 +1955,72 @@ elif tab_selection == "📈 Results & Insights":
             - **VIF < 5:** ✅ Low multicollinearity (good)
             - **VIF 5-10:** ⚠️ Moderate (acceptable)
             - **VIF > 10:** ❌ High (consider removing variable)
+            - **VIF = inf:** ⚠️ Perfect multicollinearity (variable is constant or duplicate)
+            - **VIF = None:** Dummy variables may show this (one category with no variance)
             """)
             
             try:
                 vif_data = pd.DataFrame()
                 vif_data["Feature"] = X_test.columns[1:]  # Exclude const
-                vif_data["VIF"] = [
-                    variance_inflation_factor(X_test.values, i) 
-                    for i in range(1, X_test.shape[1])
-                ]
+                
+                # Calculate VIF with better handling of inf/None
+                vif_values = []
+                for i in range(1, X_test.shape[1]):
+                    try:
+                        vif = variance_inflation_factor(X_test.values, i)
+                        # Handle inf and None
+                        if not np.isfinite(vif):
+                            vif_values.append(float('inf'))
+                        else:
+                            vif_values.append(vif)
+                    except:
+                        vif_values.append(None)
+                
+                vif_data["VIF"] = vif_values
                 
                 def vif_color(val):
-                    if val > 10:
-                        return 'background-color: #ffcccc'
+                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                        return 'background-color: #ccffcc'  # Green for None
+                    elif np.isinf(val):
+                        return 'background-color: #ffcccc'  # Red for inf
+                    elif val > 10:
+                        return 'background-color: #ffcccc'  # Red
                     elif val > 5:
-                        return 'background-color: #ffffcc'
-                    return 'background-color: #ccffcc'
+                        return 'background-color: #ffffcc'  # Yellow
+                    return 'background-color: #ccffcc'  # Green
+                
+                # Format VIF values for display
+                def format_vif(val):
+                    if val is None:
+                        return 'None'
+                    elif np.isinf(val):
+                        return 'inf'
+                    else:
+                        return f'{val:.2f}'
+                
+                vif_data['VIF_display'] = vif_data['VIF'].apply(format_vif)
                 
                 st.dataframe(
-                    vif_data.style.applymap(vif_color, subset=['VIF']).format({'VIF': '{:.2f}'}),
+                    vif_data[['Feature', 'VIF_display']].rename(columns={'VIF_display': 'VIF'})
+                        .style.apply(lambda x: [vif_color(v) if c == 'VIF' else '' 
+                                                for c, v in zip(x.index, vif_data['VIF'])], axis=1),
                     width='stretch'
                 )
                 
                 # VIF Summary
-                high_vif = vif_data[vif_data['VIF'] > 10]
+                high_vif = vif_data[vif_data['VIF'].apply(lambda x: x > 10 if x is not None and np.isfinite(x) else False)]
+                inf_vif = vif_data[vif_data['VIF'].apply(lambda x: np.isinf(x) if x is not None else False)]
+                
+                if len(inf_vif) > 0:
+                    st.error(f"❌ {len(inf_vif)} variable(s) with VIF = inf (perfect multicollinearity)!")
+                    st.write("**Variables with infinite VIF (likely duplicates or constants):**")
+                    st.dataframe(inf_vif[['Feature', 'VIF_display']].rename(columns={'VIF_display': 'VIF'}), width='stretch')
+                
                 if len(high_vif) > 0:
-                    st.error(f"❌ {len(high_vif)} variable(s) with VIF > 10 detected!")
-                    st.dataframe(high_vif, width='stretch')
-                else:
+                    st.warning(f"⚠️ {len(high_vif)} variable(s) with VIF > 10 detected!")
+                    st.dataframe(high_vif[['Feature', 'VIF_display']].rename(columns={'VIF_display': 'VIF'}), width='stretch')
+                
+                if len(high_vif) == 0 and len(inf_vif) == 0:
                     st.success("✅ No high multicollinearity detected")
                 
             except Exception as e:
@@ -1998,13 +2070,32 @@ elif tab_selection == "📈 Results & Insights":
                 else:
                     sig = ''
                 
+                # Get confidence intervals safely
+                try:
+                    ci_lower = float(conf_intervals.at[param, 0])
+                except:
+                    try:
+                        ci_lower = float(conf_intervals.loc[param].iloc[0])
+                    except:
+                        ci_lower = 0.0
+                
+                try:
+                    ci_upper = float(conf_intervals.at[param, 1])
+                except:
+                    try:
+                        ci_upper = float(conf_intervals.loc[param].iloc[1])
+                    except:
+                        ci_upper = 0.0
+                
+                ci_width = ci_upper - ci_lower
+                
                 coef_data.append({
                     'Variable': param,
                     'Coefficient': coef,
                     'Std Error': std_err,
-                    'CI Lower (2.5%)': float(conf_intervals.loc[param, 0]),
-                    'CI Upper (97.5%)': float(conf_intervals.loc[param, 1]),
-                    'CI Width': float(conf_intervals.loc[param, 1] - conf_intervals.loc[param, 0]),
+                    'CI Lower (2.5%)': ci_lower,
+                    'CI Upper (97.5%)': ci_upper,
+                    'CI Width': ci_width,
                     'T-Statistic': t_stat,
                     'P-Value': p_val,
                     'Significant': sig
