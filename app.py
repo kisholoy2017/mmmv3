@@ -1806,9 +1806,12 @@ elif tab_selection == "📈 Results & Insights":
                                     beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
                                     
                                 channel_name = meta[feat]['spend_col']
-                                # Get gamma-based Hill parameters (NEW)
+                                # Get transformation parameters
+                                adstock_theta = meta[feat]['adstock_theta']
                                 alpha = meta[feat]['alpha']
                                 gamma = meta[feat]['gamma']
+                                x_min = meta[feat]['x_min']  # Fixed from training
+                                x_max = meta[feat]['x_max']  # Fixed from training
                                 
                                 current_total = test_df[channel_name].sum()
                                 optimized_total = channel_totals[i]
@@ -1822,8 +1825,15 @@ elif tab_selection == "📈 Results & Insights":
                                 scaled_daily_spend = test_df[channel_name].values * scale
                                 
                                 # Apply transformations (NO standardization)
-                                adstocked_spend = adstock_transformation(scaled_daily_spend, alpha=adstock_alpha)
-                                saturated_spend = hill_transformation(adstocked_spend, alpha, gamma)
+                                adstocked_spend = adstock_transformation(scaled_daily_spend, alpha=adstock_theta)
+                                
+                                # Apply Hill with FIXED inflection point (not recalculated from scaled data)
+                                inflexion = x_min * (1 - gamma) + x_max * gamma
+                                inflexion = max(float(inflexion), 1e-9)
+                                adstocked_spend = np.maximum(adstocked_spend, 0.0)
+                                x_alpha = np.power(adstocked_spend, alpha)
+                                inflexion_alpha = np.power(inflexion, alpha)
+                                saturated_spend = x_alpha / (x_alpha + inflexion_alpha)
                                 
                                 # Calculate contribution directly (no standardization)
                                 channel_revenue = np.sum(beta * saturated_spend)
@@ -1835,15 +1845,24 @@ elif tab_selection == "📈 Results & Insights":
                             return np.sum(channel_totals) - new_budget
                         
                         initial_totals = [test_df[meta[feat]['spend_col']].sum() for feat in feat_cols]
-                        bounds = [(0, None) for _ in feat_cols]
+                        
+                        # Add small perturbation to initial guess to help optimizer explore
+                        # Even if budget unchanged, force optimizer to find true optimum
+                        np.random.seed(42)  # Reproducibility
+                        perturbation = np.random.uniform(0.95, 1.05, len(initial_totals))
+                        perturbed_totals = np.array(initial_totals) * perturbation
+                        # Rescale to match budget
+                        perturbed_totals = perturbed_totals * (new_budget / np.sum(perturbed_totals))
+                        
+                        bounds = [(new_budget * 0.01, new_budget * 0.99) for _ in feat_cols]  # Each channel 1-99% of budget
                         
                         solution = minimize(
                             fun=mmm_objective,
-                            x0=initial_totals,
+                            x0=perturbed_totals,  # Start from perturbed allocation
                             bounds=bounds,
                             method="SLSQP",
                             constraints={'type': 'eq', 'fun': budget_constraint},
-                            options={'maxiter': 1000, 'ftol': 1e-9}
+                            options={'maxiter': 1000, 'ftol': 1e-6, 'disp': False}  # Relaxed tolerance
                         )
                         
                         if solution.success:
