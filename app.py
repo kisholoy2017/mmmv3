@@ -1810,8 +1810,6 @@ elif tab_selection == "📈 Results & Insights":
                                 adstock_theta = meta[feat]['adstock_theta']
                                 alpha = meta[feat]['alpha']
                                 gamma = meta[feat]['gamma']
-                                x_min = meta[feat]['x_min']  # Fixed from training
-                                x_max = meta[feat]['x_max']  # Fixed from training
                                 
                                 current_total = test_df[channel_name].sum()
                                 optimized_total = channel_totals[i]
@@ -1827,13 +1825,9 @@ elif tab_selection == "📈 Results & Insights":
                                 # Apply transformations (NO standardization)
                                 adstocked_spend = adstock_transformation(scaled_daily_spend, alpha=adstock_theta)
                                 
-                                # Apply Hill with FIXED inflection point (not recalculated from scaled data)
-                                inflexion = x_min * (1 - gamma) + x_max * gamma
-                                inflexion = max(float(inflexion), 1e-9)
-                                adstocked_spend = np.maximum(adstocked_spend, 0.0)
-                                x_alpha = np.power(adstocked_spend, alpha)
-                                inflexion_alpha = np.power(inflexion, alpha)
-                                saturated_spend = x_alpha / (x_alpha + inflexion_alpha)
+                                # Apply Hill transformation the SAME WAY as training
+                                # Hill function calculates its own x_min/x_max from input data
+                                saturated_spend = hill_transformation(adstocked_spend, alpha, gamma)
                                 
                                 # Calculate contribution directly (no standardization)
                                 channel_revenue = np.sum(beta * saturated_spend)
