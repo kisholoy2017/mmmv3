@@ -1825,9 +1825,18 @@ elif tab_selection == "📈 Results & Insights":
                                 # Apply transformations (NO standardization)
                                 adstocked_spend = adstock_transformation(scaled_daily_spend, alpha=adstock_theta)
                                 
-                                # Apply Hill transformation the SAME WAY as training
-                                # Hill function calculates its own x_min/x_max from input data
-                                saturated_spend = hill_transformation(adstocked_spend, alpha, gamma)
+                                # Apply Hill with FIXED inflection from training
+                                # This ensures consistent saturation curve
+                                x_min = meta[feat]['x_min']  # Fixed from training
+                                x_max = meta[feat]['x_max']  # Fixed from training
+                                inflexion = x_min * (1 - gamma) + x_max * gamma
+                                inflexion = max(float(inflexion), 1e-9)
+                                
+                                # Manual Hill calculation with fixed inflection
+                                adstocked_spend_clipped = np.maximum(adstocked_spend, 0.0)
+                                x_alpha = np.power(adstocked_spend_clipped, alpha)
+                                inflexion_alpha = np.power(inflexion, alpha)
+                                saturated_spend = x_alpha / (x_alpha + inflexion_alpha)
                                 
                                 # Calculate contribution directly (no standardization)
                                 channel_revenue = np.sum(beta * saturated_spend)
