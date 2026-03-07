@@ -172,20 +172,29 @@ def calculate_metrics(y_true, y_pred):
     
     return r2, mape, wmape
 
-def add_seasonality_features(df, date_col):
-    """Add seasonality features: day of week and month"""
+def add_seasonality_features(df, date_col, include_dow=True, include_month=True):
+    """Add seasonality features: day of week and/or month"""
     df = df.copy()
     
     if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
         df[date_col] = pd.to_datetime(df[date_col], errors='coerce', dayfirst=True)
     
-    df['day_of_week'] = df[date_col].dt.dayofweek
-    df['month'] = df[date_col].dt.month
+    dummies_to_add = []
     
-    day_dummies = pd.get_dummies(df['day_of_week'], prefix='dow', drop_first=True)
-    month_dummies = pd.get_dummies(df['month'], prefix='month', drop_first=True)
+    if include_dow:
+        df['day_of_week'] = df[date_col].dt.dayofweek
+        day_dummies = pd.get_dummies(df['day_of_week'], prefix='dow', drop_first=True)
+        dummies_to_add.append(day_dummies)
     
-    df_with_seasonality = pd.concat([df, day_dummies, month_dummies], axis=1)
+    if include_month:
+        df['month'] = df[date_col].dt.month
+        month_dummies = pd.get_dummies(df['month'], prefix='month', drop_first=True)
+        dummies_to_add.append(month_dummies)
+    
+    if dummies_to_add:
+        df_with_seasonality = pd.concat([df] + dummies_to_add, axis=1)
+    else:
+        df_with_seasonality = df
     
     return df_with_seasonality
 
@@ -706,32 +715,129 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
         )
         
         st.markdown("---")
-        st.markdown("### ⚙️ Model Parameters")
+        st.markdown("### 📅 Seasonality Controls")
         
-        param_col1, param_col2, param_col3, param_col4 = st.columns(4)
+        season_col1, season_col2, season_col3 = st.columns(3)
+        
+        with season_col1:
+            include_dow = st.checkbox(
+                "Include Day of Week", 
+                value=True,
+                help="Add day-of-week dummy variables (Monday-Sunday)"
+            )
+        
+        with season_col2:
+            include_month = st.checkbox(
+                "Include Month of Year", 
+                value=True,
+                help="Add month-of-year dummy variables (Jan-Dec)"
+            )
+        
+        with season_col3:
+            if not include_dow and not include_month:
+                st.warning("⚠️ No seasonality selected")
+            elif include_dow and include_month:
+                st.success("✅ Full seasonality (DOW + Month)")
+            elif include_dow:
+                st.info("📊 Day-of-week only")
+            else:
+                st.info("📊 Month only")
+        
+        st.markdown("---")
+        st.markdown("### ⚙️ Global Model Parameters")
+        
+        st.info("💡 **Tip:** Set global defaults here, or use per-channel controls below for fine-tuned parameters")
+        
+        param_col1, param_col2, param_col3 = st.columns(3)
         
         with param_col1:
-            adstock_alpha = st.slider(
-                "Adstock Rate (θ)", 
+            global_adstock = st.slider(
+                "Global Adstock Rate (θ)", 
                 0.0, 0.9, 0.5, 0.05, 
-                help="Carryover effect of advertising (theta)"
+                help="Default carryover effect (theta) - can override per channel"
             )
         
         with param_col2:
-            hill_alpha = st.slider(
-                "Hill Alpha (α)", 
+            global_hill_alpha = st.slider(
+                "Global Hill Alpha (α)", 
                 0.5, 3.0, 1.0, 0.1, 
-                help="Saturation curve steepness - higher = sharper saturation"
+                help="Default saturation steepness - can override per channel"
             )
         
         with param_col3:
-            hill_gamma = st.slider(
-                "Hill Gamma (γ)", 
+            global_hill_gamma = st.slider(
+                "Global Hill Gamma (γ)", 
                 0.0, 1.0, 0.5, 0.05, 
-                help="Saturation inflection point - 0.5 = midpoint, 1.0 = at maximum"
+                help="Default inflection point - can override per channel"
             )
         
-        with param_col4:
+        st.markdown("---")
+        st.markdown("### 🎯 Per-Channel Parameter Controls")
+        
+        use_per_channel = st.checkbox(
+            "Enable Per-Channel Parameter Customization", 
+            value=False,
+            help="Override global parameters for individual channels"
+        )
+        
+        # Store per-channel parameters
+        channel_params = {}
+        
+        if use_per_channel:
+            st.info("""
+            **Per-Channel Parameters:** Customize adstock and saturation for each media channel.
+            
+            **Suggested ranges by channel type:**
+            - **TV/Video:** θ: 0.3-0.8, α: 0.5-3.0, γ: 0.3-1.0 (high carryover)
+            - **Digital (FB/Google):** θ: 0.0-0.3, α: 0.5-3.0, γ: 0.3-1.0 (low carryover)
+            - **Traditional (Print/Radio):** θ: 0.1-0.5, α: 0.5-3.0, γ: 0.3-1.0 (medium carryover)
+            """)
+            
+            for media_col in media_cols:
+                with st.expander(f"📊 {media_col}"):
+                    ch_col1, ch_col2, ch_col3 = st.columns(3)
+                    
+                    with ch_col1:
+                        ch_adstock = st.slider(
+                            f"Adstock (θ)",
+                            0.0, 0.9, global_adstock, 0.05,
+                            key=f"adstock_{media_col}",
+                            help=f"Carryover effect for {media_col}"
+                        )
+                    
+                    with ch_col2:
+                        ch_alpha = st.slider(
+                            f"Alpha (α)",
+                            0.5, 3.0, global_hill_alpha, 0.1,
+                            key=f"alpha_{media_col}",
+                            help=f"Saturation steepness for {media_col}"
+                        )
+                    
+                    with ch_col3:
+                        ch_gamma = st.slider(
+                            f"Gamma (γ)",
+                            0.0, 1.0, global_hill_gamma, 0.05,
+                            key=f"gamma_{media_col}",
+                            help=f"Inflection point for {media_col}"
+                        )
+                    
+                    channel_params[media_col] = {
+                        'adstock': ch_adstock,
+                        'alpha': ch_alpha,
+                        'gamma': ch_gamma
+                    }
+        else:
+            # Use global parameters for all channels
+            for media_col in media_cols:
+                channel_params[media_col] = {
+                    'adstock': global_adstock,
+                    'alpha': global_hill_alpha,
+                    'gamma': global_hill_gamma
+                }
+        
+        st.markdown("---")
+        train_split_col, _ = st.columns([1, 2])
+        with train_split_col:
             train_test_split = st.slider(
                 "Train/Test Split", 
                 0.6, 0.9, 0.8, 0.05, 
@@ -753,7 +859,7 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                     daily_df = daily_df.dropna(subset=[target_col])
                     
                     st.info("Step 2/7: Adding seasonality features...")
-                    daily_df = add_seasonality_features(daily_df, date_col)
+                    daily_df = add_seasonality_features(daily_df, date_col, include_dow, include_month)
                     
                     promo_features = []
                     promo_is_dummy = False
@@ -806,16 +912,21 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                     feat_cols = []
                     
                     for media_col in media_cols:
-                        # Adstock transformation
+                        # Get channel-specific parameters
+                        ch_adstock = channel_params[media_col]['adstock']
+                        ch_alpha = channel_params[media_col]['alpha']
+                        ch_gamma = channel_params[media_col]['gamma']
+                        
+                        # Adstock transformation with channel-specific parameter
                         daily_df[f'{media_col}_adstock'] = adstock_transformation(
-                            daily_df[media_col].values, alpha=adstock_alpha
+                            daily_df[media_col].values, alpha=ch_adstock
                         )
                         
-                        # Hill saturation with gamma-based inflection (NO kappa)
+                        # Hill saturation with channel-specific parameters
                         daily_df[f'{media_col}_saturated'] = hill_transformation(
                             daily_df[f'{media_col}_adstock'].values,
-                            alpha=hill_alpha,
-                            gamma=hill_gamma
+                            alpha=ch_alpha,
+                            gamma=ch_gamma
                         )
                         
                         # NO STANDARDIZATION - use raw saturated values directly
@@ -825,9 +936,9 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                         # Store metadata (no mu/sd since no standardization)
                         meta[feat_name] = {
                             'spend_col': media_col,
-                            'alpha': hill_alpha,
-                            'gamma': hill_gamma,
-                            'adstock_theta': adstock_alpha,
+                            'alpha': ch_alpha,
+                            'gamma': ch_gamma,
+                            'adstock_theta': ch_adstock,
                             # Store min/max for derivative calculation
                             'x_min': float(daily_df[f'{media_col}_adstock'].min()),
                             'x_max': float(daily_df[f'{media_col}_adstock'].max())
@@ -908,9 +1019,9 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                     st.session_state.y_test = y_test
                     st.session_state.y_train_pred = y_train_pred
                     st.session_state.y_test_pred = y_test_pred
-                    st.session_state.adstock_alpha = adstock_alpha
-                    st.session_state.hill_alpha = hill_alpha  # NEW
-                    st.session_state.hill_gamma = hill_gamma  # NEW
+                    st.session_state.channel_params = channel_params  # NEW: per-channel parameters
+                    st.session_state.include_dow = include_dow  # NEW: seasonality controls
+                    st.session_state.include_month = include_month  # NEW: seasonality controls
                     st.session_state.promo_col = promo_col
                     st.session_state.control_cols = control_cols
                     
@@ -983,9 +1094,9 @@ elif tab_selection == "📈 Results & Insights":
         X_test = st.session_state.X_test
         y_test = st.session_state.y_test
         y_test_pred = st.session_state.y_test_pred
-        adstock_alpha = st.session_state.adstock_alpha
-        hill_alpha = st.session_state.hill_alpha  # NEW
-        hill_gamma = st.session_state.hill_gamma  # NEW
+        channel_params = st.session_state.channel_params  # NEW: per-channel parameters
+        include_dow = st.session_state.include_dow  # NEW: seasonality controls
+        include_month = st.session_state.include_month  # NEW: seasonality controls
         promo_col = st.session_state.promo_col
         promo_features = st.session_state.promo_features
         control_cols = st.session_state.control_cols
@@ -1350,6 +1461,7 @@ elif tab_selection == "📈 Results & Insights":
                 roi = contrib / total_spend if total_spend > 0 else 0
                 
                 # Get Hill parameters (NEW - gamma-based)
+                adstock_theta = meta[feat]['adstock_theta']
                 alpha = meta[feat]['alpha']
                 gamma = meta[feat]['gamma']
                 x_min = meta[feat]['x_min']
@@ -1360,12 +1472,12 @@ elif tab_selection == "📈 Results & Insights":
                     marginal_roas = 0
                 else:
                     # Calculate adstocked spend
-                    A = current_avg_spend / (1 - adstock_alpha) if adstock_alpha < 1 else current_avg_spend
+                    A = current_avg_spend / (1 - adstock_theta) if adstock_theta < 1 else current_avg_spend
                     
                     # Marginal ROAS = beta × hill_derivative × (1 / (1 - theta))
                     # No sd since no standardization
                     hill_deriv = hill_derivative(A, alpha, gamma, x_min, x_max)
-                    marginal_roas = beta * hill_deriv / (1 - adstock_alpha) if adstock_alpha < 1 else 0
+                    marginal_roas = beta * hill_deriv / (1 - adstock_theta) if adstock_theta < 1 else 0
                 
                 roi_data.append({
                     'Channel': channel_name.replace('_Cost', '').replace('_cost', ''),
@@ -1639,6 +1751,7 @@ elif tab_selection == "📈 Results & Insights":
                 beta = float(beta_val.iloc[0] if hasattr(beta_val, 'iloc') else beta_val)
                 
             # Get gamma-based Hill parameters (NEW)
+            adstock_theta = meta[feat]['adstock_theta']
             alpha = meta[feat]['alpha']
             gamma = meta[feat]['gamma']
             x_min = meta[feat]['x_min']
@@ -1655,8 +1768,8 @@ elif tab_selection == "📈 Results & Insights":
             spend_range = np.linspace(0, max_spend * 1.5, 200)
             
             # Apply adstock
-            if adstock_alpha < 1:
-                adstocked = spend_range / (1 - adstock_alpha)
+            if adstock_theta < 1:
+                adstocked = spend_range / (1 - adstock_theta)
             else:
                 adstocked = spend_range
             
@@ -1665,9 +1778,9 @@ elif tab_selection == "📈 Results & Insights":
             revenue = beta * saturated  # Direct multiplication, no standardization
             
             # Calculate marginal ROAS
-            if adstock_alpha < 1:
+            if adstock_theta < 1:
                 hill_deriv = hill_derivative(adstocked, alpha, gamma, x_min, x_max)
-                marginal_roas = beta * hill_deriv / (1 - adstock_alpha)
+                marginal_roas = beta * hill_deriv / (1 - adstock_theta)
             else:
                 marginal_roas = np.zeros_like(spend_range)
             
