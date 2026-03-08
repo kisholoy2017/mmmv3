@@ -253,6 +253,10 @@ def calculate_decomp_rssd(test_df, contributions, media_cols):
 # Main app
 st.markdown('<p class="main-header">📊 MMM Platform: Advanced Hill + No Standardization + Control Variables</p>', unsafe_allow_html=True)
 
+# VERSION STAMP - VERIFY YOU'RE RUNNING THE RIGHT FILE
+st.success("🔥 **VERSION: SCALING FIX v3.0 - 2026-03-08** 🔥")
+st.info("✅ This version includes: Feature scaling by max_spend to fix negative baseline")
+
 # Sidebar
 with st.sidebar:
     st.image("https://img.icons8.com/fluency/96/000000/analytics.png", width=100)
@@ -933,10 +937,19 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                         # Saturated (0-1) × max_spend → ranges from 0 to max_spend
                         # This keeps features at proper scale relative to revenue
                         max_spend = daily_df[media_col].max()
+                        
+                        # DEBUG: Show scaling info
+                        st.write(f"🔍 DEBUG {media_col}:")
+                        st.write(f"  - Raw saturated range: [{saturated_raw.min():.4f}, {saturated_raw.max():.4f}]")
+                        st.write(f"  - Max spend: ${max_spend:,.0f}")
+                        
                         if max_spend > 0:
                             daily_df[f'{media_col}_saturated'] = saturated_raw * max_spend
+                            st.write(f"  - Scaled range: [${daily_df[f'{media_col}_saturated'].min():,.0f}, ${daily_df[f'{media_col}_saturated'].max():,.0f}]")
+                            st.success(f"  ✅ Scaling applied: multiplied by ${max_spend:,.0f}")
                         else:
                             daily_df[f'{media_col}_saturated'] = saturated_raw
+                            st.warning(f"  ⚠️ No scaling (max_spend = 0)")
                         
                         # Store scaling factor for later use
                         feat_name = f'{media_col}_saturated'
@@ -953,6 +966,35 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                             'x_min': float(daily_df[f'{media_col}_adstock'].min()),
                             'x_max': float(daily_df[f'{media_col}_adstock'].max())
                         }
+                    
+                    # SANITY CHECK: Verify features are scaled properly
+                    st.markdown("---")
+                    st.markdown("### 🔍 SANITY CHECK: Feature Scaling Verification")
+                    st.info("Checking if features are properly scaled...")
+                    
+                    sanity_check_passed = True
+                    for feat in feat_cols:
+                        feat_min = daily_df[feat].min()
+                        feat_max = daily_df[feat].max()
+                        feat_mean = daily_df[feat].mean()
+                        
+                        st.write(f"**{feat}:**")
+                        st.write(f"  - Min: {feat_min:,.2f}, Max: {feat_max:,.2f}, Mean: {feat_mean:,.2f}")
+                        
+                        # Check if in 0-1 range (BAD) or dollar range (GOOD)
+                        if feat_max <= 1.1:  # Some tolerance
+                            st.error(f"  ❌ PROBLEM: Feature in 0-1 range! Scaling NOT applied!")
+                            sanity_check_passed = False
+                        else:
+                            st.success(f"  ✅ GOOD: Feature scaled to dollar range")
+                    
+                    if not sanity_check_passed:
+                        st.error("🚨 CRITICAL ERROR: Features are NOT scaled! Check code!")
+                        st.stop()
+                    else:
+                        st.success("✅ All features properly scaled!")
+                    
+                    st.markdown("---")
                     
                     st.info("Step 5/7: Splitting data...")
                     split_idx = int(len(daily_df) * train_test_split)
@@ -1006,6 +1048,18 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                     
                     st.info("Step 6/7: Training OLS model...")
                     model = sm.OLS(y_train, X_train).fit()
+                    
+                    # DEBUG: Show coefficients for media features
+                    st.write("🔍 DEBUG - Media Feature Coefficients:")
+                    for feat in feat_cols:
+                        if feat in model.params.index:
+                            coef = float(model.params.at[feat])
+                            st.write(f"  - {feat}: β = {coef:,.4f}")
+                    
+                    # Show baseline too
+                    if 'const' in model.params.index:
+                        baseline_coef = float(model.params.at['const'])
+                        st.write(f"  - Baseline (const): β₀ = {baseline_coef:,.2f}")
                     
                     y_train_pred = model.predict(X_train)
                     y_test_pred = model.predict(X_test)
