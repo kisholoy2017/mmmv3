@@ -254,8 +254,8 @@ def calculate_decomp_rssd(test_df, contributions, media_cols):
 st.markdown('<p class="main-header">📊 MMM Platform: Advanced Hill + No Standardization + Control Variables</p>', unsafe_allow_html=True)
 
 # VERSION STAMP - VERIFY YOU'RE RUNNING THE RIGHT FILE
-st.success("🔥 **VERSION: v4.1 - MEAN SCALING + SESSION TRACKING** 🔥")
-st.info("✅ This version: Mean scaling + model version tracking to prevent viewing old results")
+st.success("🔥 **VERSION: v5.0 - Z-SCORE STANDARDIZATION (FINAL FIX)** 🔥")
+st.info("✅ This version: Z-score standardization (mean=0, std=1) - the industry standard approach")
 
 # Sidebar
 with st.sidebar:
@@ -933,24 +933,23 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                             gamma=ch_gamma
                         )
                         
-                        # SCALE saturated values by MEAN spend to prevent negative baseline
-                        # This makes feature means proportional to actual spending patterns
-                        # Saturated (0-1) × mean_spend → preserves spend relationships
-                        mean_spend = daily_df[media_col].mean()
+                        # STANDARDIZE saturated values (z-score normalization)
+                        # This puts all features on the same scale: mean=0, std=1
+                        # Prevents negative baseline by making coefficients comparable
+                        saturated_mean = saturated_raw.mean()
+                        saturated_std = saturated_raw.std()
                         
-                        # DEBUG: Show scaling info
+                        # DEBUG: Show standardization info
                         st.write(f"🔍 DEBUG {media_col}:")
-                        st.write(f"  - Raw saturated range: [{saturated_raw.min():.4f}, {saturated_raw.max():.4f}]")
-                        st.write(f"  - Mean spend: ${mean_spend:,.2f}")
+                        st.write(f"  - Raw saturated: mean={saturated_mean:.4f}, std={saturated_std:.4f}")
                         
-                        if mean_spend > 0:
-                            daily_df[f'{media_col}_saturated'] = saturated_raw * mean_spend
-                            st.write(f"  - Scaled range: [${daily_df[f'{media_col}_saturated'].min():,.2f}, ${daily_df[f'{media_col}_saturated'].max():,.2f}]")
-                            st.write(f"  - Scaled mean: ${daily_df[f'{media_col}_saturated'].mean():,.2f}")
-                            st.success(f"  ✅ Scaling applied: multiplied by ${mean_spend:,.2f} (mean spend)")
+                        if saturated_std > 0:
+                            daily_df[f'{media_col}_saturated'] = (saturated_raw - saturated_mean) / saturated_std
+                            st.write(f"  - Standardized: mean={daily_df[f'{media_col}_saturated'].mean():.4f}, std={daily_df[f'{media_col}_saturated'].std():.4f}")
+                            st.success(f"  ✅ Standardization applied (z-score)")
                         else:
                             daily_df[f'{media_col}_saturated'] = saturated_raw
-                            st.warning(f"  ⚠️ No scaling (mean_spend = 0)")
+                            st.warning(f"  ⚠️ No standardization (std = 0)")
                         
                         # Store scaling factor for later use
                         feat_name = f'{media_col}_saturated'
@@ -962,38 +961,38 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                             'alpha': ch_alpha,
                             'gamma': ch_gamma,
                             'adstock_theta': ch_adstock,
-                            'scaling_factor': mean_spend,  # Store mean spend for contribution calculation
+                            'saturated_mean': float(saturated_mean),  # For de-standardization
+                            'saturated_std': float(saturated_std),    # For de-standardization
                             # Store min/max for derivative calculation
                             'x_min': float(daily_df[f'{media_col}_adstock'].min()),
                             'x_max': float(daily_df[f'{media_col}_adstock'].max())
                         }
                     
-                    # SANITY CHECK: Verify features are scaled properly
+                    # SANITY CHECK: Verify features are standardized properly
                     st.markdown("---")
-                    st.markdown("### 🔍 SANITY CHECK: Feature Scaling Verification")
-                    st.info("Checking if features are properly scaled by mean spend...")
+                    st.markdown("### 🔍 SANITY CHECK: Feature Standardization Verification")
+                    st.info("Checking if features are properly standardized (z-score)...")
                     
                     sanity_check_passed = True
                     for feat in feat_cols:
-                        feat_min = daily_df[feat].min()
-                        feat_max = daily_df[feat].max()
                         feat_mean = daily_df[feat].mean()
+                        feat_std = daily_df[feat].std()
                         
                         st.write(f"**{feat}:**")
-                        st.write(f"  - Min: {feat_min:,.2f}, Max: {feat_max:,.2f}, Mean: {feat_mean:,.2f}")
+                        st.write(f"  - Mean: {feat_mean:.4f}, Std: {feat_std:.4f}")
                         
-                        # Check if in 0-1 range (BAD) or dollar range (GOOD)
-                        if feat_max <= 1.1:  # Some tolerance
-                            st.error(f"  ❌ PROBLEM: Feature in 0-1 range! Scaling NOT applied!")
+                        # Check if standardized (mean≈0, std≈1)
+                        if abs(feat_mean) > 0.01 or abs(feat_std - 1.0) > 0.01:
+                            st.error(f"  ❌ PROBLEM: Not standardized! Mean should be ~0, Std should be ~1")
                             sanity_check_passed = False
                         else:
-                            st.success(f"  ✅ GOOD: Feature scaled to dollar range (mean spend basis)")
+                            st.success(f"  ✅ GOOD: Properly standardized (mean≈0, std≈1)")
                     
                     if not sanity_check_passed:
-                        st.error("🚨 CRITICAL ERROR: Features are NOT scaled! Check code!")
+                        st.error("🚨 CRITICAL ERROR: Features are NOT standardized! Check code!")
                         st.stop()
                     else:
-                        st.success("✅ All features properly scaled by mean spend!")
+                        st.success("✅ All features properly standardized!")
                     
                     st.markdown("---")
                     
@@ -1093,7 +1092,7 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                     # VERSION TRACKING - Confirm which model is loaded
                     import datetime
                     st.session_state.model_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    st.session_state.model_version = "v4.1_MEAN_SCALING"
+                    st.session_state.model_version = "v5.0_Z_SCORE_STANDARDIZATION"
                     
                     # Show baseline coefficient immediately to verify
                     try:
@@ -1549,13 +1548,14 @@ elif tab_selection == "📈 Results & Insights":
                 
                 roi = contrib / total_spend if total_spend > 0 else 0
                 
-                # Get Hill parameters and scaling factor
+                # Get Hill parameters and standardization params
                 adstock_theta = meta[feat]['adstock_theta']
                 alpha = meta[feat]['alpha']
                 gamma = meta[feat]['gamma']
                 x_min = meta[feat]['x_min']
                 x_max = meta[feat]['x_max']
-                scaling_factor = meta[feat]['scaling_factor']
+                saturated_mean = meta[feat]['saturated_mean']
+                saturated_std = meta[feat]['saturated_std']
                 current_avg_spend = test_df[channel_name].mean()
                 
                 if current_avg_spend <= 0:
@@ -1564,9 +1564,12 @@ elif tab_selection == "📈 Results & Insights":
                     # Calculate adstocked spend
                     A = current_avg_spend / (1 - adstock_theta) if adstock_theta < 1 else current_avg_spend
                     
-                    # Marginal ROAS = β × scaling_factor × hill_derivative / (1 - θ)
+                    # Marginal ROAS = β × (1/std) × hill_derivative / (1 - θ)
                     hill_deriv = hill_derivative(A, alpha, gamma, x_min, x_max)
-                    marginal_roas = beta * scaling_factor * hill_deriv / (1 - adstock_theta) if adstock_theta < 1 else 0
+                    if saturated_std > 0:
+                        marginal_roas = beta * (1 / saturated_std) * hill_deriv / (1 - adstock_theta) if adstock_theta < 1 else 0
+                    else:
+                        marginal_roas = 0
                 
                 roi_data.append({
                     'Channel': channel_name.replace('_Cost', '').replace('_cost', ''),
@@ -1862,17 +1865,25 @@ elif tab_selection == "📈 Results & Insights":
             else:
                 adstocked = spend_range
             
-            # Apply Hill saturation with scaling
+            # Apply Hill saturation and standardization
             saturated_raw = hill_transformation(adstocked, alpha, gamma)
-            scaling_factor = meta[feat]['scaling_factor']
-            saturated = saturated_raw * scaling_factor
-            revenue = beta * saturated  # Scaled contribution
+            saturated_mean = meta[feat]['saturated_mean']
+            saturated_std = meta[feat]['saturated_std']
+            if saturated_std > 0:
+                saturated = (saturated_raw - saturated_mean) / saturated_std
+            else:
+                saturated = saturated_raw
+            revenue = beta * saturated  # Standardized units × coefficient
             
-            # Calculate marginal ROAS (derivative accounts for scaling)
+            # Calculate marginal ROAS (derivative accounts for standardization)
             if adstock_theta < 1:
                 hill_deriv = hill_derivative(adstocked, alpha, gamma, x_min, x_max)
-                # Marginal ROAS = β × scaling_factor × hill_derivative / (1 - θ)
-                marginal_roas = beta * scaling_factor * hill_deriv / (1 - adstock_theta)
+                # Marginal ROAS = β × (1/std) × hill_derivative / (1 - θ)
+                saturated_std = meta[feat]['saturated_std']
+                if saturated_std > 0:
+                    marginal_roas = beta * (1 / saturated_std) * hill_deriv / (1 - adstock_theta)
+                else:
+                    marginal_roas = np.zeros_like(spend_range)
             else:
                 marginal_roas = np.zeros_like(spend_range)
             
@@ -2043,13 +2054,16 @@ elif tab_selection == "📈 Results & Insights":
                                 inflexion_alpha = np.power(inflexion, alpha)
                                 saturated_raw = x_alpha / (x_alpha + inflexion_alpha)
                                 
-                                # Apply same scaling as training: multiply by scaling_factor (mean_spend)
-                                # This ensures consistency with how features were created
-                                scaling_factor = meta[feat]['scaling_factor']
-                                saturated_spend = saturated_raw * scaling_factor
+                                # Apply same standardization as training
+                                saturated_mean = meta[feat]['saturated_mean']
+                                saturated_std = meta[feat]['saturated_std']
+                                if saturated_std > 0:
+                                    saturated_standardized = (saturated_raw - saturated_mean) / saturated_std
+                                else:
+                                    saturated_standardized = saturated_raw
                                 
                                 # Calculate contribution
-                                channel_revenue = np.sum(beta * saturated_spend)
+                                channel_revenue = np.sum(beta * saturated_standardized)
                                 total_revenue += channel_revenue
                             
                             return -total_revenue
