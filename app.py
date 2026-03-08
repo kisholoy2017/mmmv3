@@ -254,8 +254,8 @@ def calculate_decomp_rssd(test_df, contributions, media_cols):
 st.markdown('<p class="main-header">📊 MMM Platform: Advanced Hill + No Standardization + Control Variables</p>', unsafe_allow_html=True)
 
 # VERSION STAMP - VERIFY YOU'RE RUNNING THE RIGHT FILE
-st.success("🔥 **VERSION: MEAN SCALING FIX v4.0 - 2026-03-08** 🔥")
-st.info("✅ This version: Features scaled by MEAN spend (not max) to fix negative baseline")
+st.success("🔥 **VERSION: v4.1 - MEAN SCALING + SESSION TRACKING** 🔥")
+st.info("✅ This version: Mean scaling + model version tracking to prevent viewing old results")
 
 # Sidebar
 with st.sidebar:
@@ -1090,6 +1090,24 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                     st.session_state.promo_col = promo_col
                     st.session_state.control_cols = control_cols
                     
+                    # VERSION TRACKING - Confirm which model is loaded
+                    import datetime
+                    st.session_state.model_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    st.session_state.model_version = "v4.1_MEAN_SCALING"
+                    
+                    # Show baseline coefficient immediately to verify
+                    try:
+                        baseline_coef = float(model.params.at['const'])
+                        baseline_total = baseline_coef * len(test_df)
+                        st.success(f"✅ NEW MODEL BASELINE: ${baseline_total:,.0f} ({baseline_coef:,.2f}/day × {len(test_df)} days)")
+                        if baseline_total > 0:
+                            st.balloons()
+                            st.success("🎉 BASELINE IS POSITIVE! The fix worked!")
+                        else:
+                            st.warning(f"⚠️ Baseline still negative: ${baseline_total:,.0f}")
+                    except:
+                        pass
+                    
                     st.success("✅ Model trained successfully!")
                     st.balloons()
                     
@@ -1149,6 +1167,12 @@ elif tab_selection == "📈 Results & Insights":
         st.warning("⚠️ Please train the model first!")
         st.info("👉 Go to 'Marketing Mix Modeling' tab")
     else:
+        # SHOW WHICH MODEL IS LOADED
+        if hasattr(st.session_state, 'model_version') and hasattr(st.session_state, 'model_timestamp'):
+            st.success(f"📊 **Loaded Model:** {st.session_state.model_version} | Trained: {st.session_state.model_timestamp}")
+        else:
+            st.warning("⚠️ **WARNING:** Old model loaded (no version info). Please re-train!")
+        
         model = st.session_state.model
         meta = st.session_state.meta
         feat_cols = st.session_state.feat_cols
