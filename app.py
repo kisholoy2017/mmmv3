@@ -254,8 +254,8 @@ def calculate_decomp_rssd(test_df, contributions, media_cols):
 st.markdown('<p class="main-header">📊 MMM Platform: Advanced Hill + No Standardization + Control Variables</p>', unsafe_allow_html=True)
 
 # VERSION STAMP - VERIFY YOU'RE RUNNING THE RIGHT FILE
-st.success("🔥 **VERSION: SCALING FIX v3.0 - 2026-03-08** 🔥")
-st.info("✅ This version includes: Feature scaling by max_spend to fix negative baseline")
+st.success("🔥 **VERSION: MEAN SCALING FIX v4.0 - 2026-03-08** 🔥")
+st.info("✅ This version: Features scaled by MEAN spend (not max) to fix negative baseline")
 
 # Sidebar
 with st.sidebar:
@@ -933,23 +933,24 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                             gamma=ch_gamma
                         )
                         
-                        # SCALE saturated values by max spend to prevent negative baseline
-                        # Saturated (0-1) × max_spend → ranges from 0 to max_spend
-                        # This keeps features at proper scale relative to revenue
-                        max_spend = daily_df[media_col].max()
+                        # SCALE saturated values by MEAN spend to prevent negative baseline
+                        # This makes feature means proportional to actual spending patterns
+                        # Saturated (0-1) × mean_spend → preserves spend relationships
+                        mean_spend = daily_df[media_col].mean()
                         
                         # DEBUG: Show scaling info
                         st.write(f"🔍 DEBUG {media_col}:")
                         st.write(f"  - Raw saturated range: [{saturated_raw.min():.4f}, {saturated_raw.max():.4f}]")
-                        st.write(f"  - Max spend: ${max_spend:,.0f}")
+                        st.write(f"  - Mean spend: ${mean_spend:,.2f}")
                         
-                        if max_spend > 0:
-                            daily_df[f'{media_col}_saturated'] = saturated_raw * max_spend
-                            st.write(f"  - Scaled range: [${daily_df[f'{media_col}_saturated'].min():,.0f}, ${daily_df[f'{media_col}_saturated'].max():,.0f}]")
-                            st.success(f"  ✅ Scaling applied: multiplied by ${max_spend:,.0f}")
+                        if mean_spend > 0:
+                            daily_df[f'{media_col}_saturated'] = saturated_raw * mean_spend
+                            st.write(f"  - Scaled range: [${daily_df[f'{media_col}_saturated'].min():,.2f}, ${daily_df[f'{media_col}_saturated'].max():,.2f}]")
+                            st.write(f"  - Scaled mean: ${daily_df[f'{media_col}_saturated'].mean():,.2f}")
+                            st.success(f"  ✅ Scaling applied: multiplied by ${mean_spend:,.2f} (mean spend)")
                         else:
                             daily_df[f'{media_col}_saturated'] = saturated_raw
-                            st.warning(f"  ⚠️ No scaling (max_spend = 0)")
+                            st.warning(f"  ⚠️ No scaling (mean_spend = 0)")
                         
                         # Store scaling factor for later use
                         feat_name = f'{media_col}_saturated'
@@ -961,7 +962,7 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                             'alpha': ch_alpha,
                             'gamma': ch_gamma,
                             'adstock_theta': ch_adstock,
-                            'scaling_factor': max_spend,  # Store for contribution calculation
+                            'scaling_factor': mean_spend,  # Store mean spend for contribution calculation
                             # Store min/max for derivative calculation
                             'x_min': float(daily_df[f'{media_col}_adstock'].min()),
                             'x_max': float(daily_df[f'{media_col}_adstock'].max())
@@ -970,7 +971,7 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                     # SANITY CHECK: Verify features are scaled properly
                     st.markdown("---")
                     st.markdown("### 🔍 SANITY CHECK: Feature Scaling Verification")
-                    st.info("Checking if features are properly scaled...")
+                    st.info("Checking if features are properly scaled by mean spend...")
                     
                     sanity_check_passed = True
                     for feat in feat_cols:
@@ -986,13 +987,13 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                             st.error(f"  ❌ PROBLEM: Feature in 0-1 range! Scaling NOT applied!")
                             sanity_check_passed = False
                         else:
-                            st.success(f"  ✅ GOOD: Feature scaled to dollar range")
+                            st.success(f"  ✅ GOOD: Feature scaled to dollar range (mean spend basis)")
                     
                     if not sanity_check_passed:
                         st.error("🚨 CRITICAL ERROR: Features are NOT scaled! Check code!")
                         st.stop()
                     else:
-                        st.success("✅ All features properly scaled!")
+                        st.success("✅ All features properly scaled by mean spend!")
                     
                     st.markdown("---")
                     
@@ -2018,7 +2019,7 @@ elif tab_selection == "📈 Results & Insights":
                                 inflexion_alpha = np.power(inflexion, alpha)
                                 saturated_raw = x_alpha / (x_alpha + inflexion_alpha)
                                 
-                                # Apply same scaling as training: multiply by scaling_factor (max_spend)
+                                # Apply same scaling as training: multiply by scaling_factor (mean_spend)
                                 # This ensures consistency with how features were created
                                 scaling_factor = meta[feat]['scaling_factor']
                                 saturated_spend = saturated_raw * scaling_factor
