@@ -923,22 +923,32 @@ elif tab_selection == "🎯 Marketing Mix Modeling":
                         )
                         
                         # Hill saturation with channel-specific parameters
-                        daily_df[f'{media_col}_saturated'] = hill_transformation(
+                        saturated_raw = hill_transformation(
                             daily_df[f'{media_col}_adstock'].values,
                             alpha=ch_alpha,
                             gamma=ch_gamma
                         )
                         
-                        # NO STANDARDIZATION - use raw saturated values directly
+                        # SCALE saturated values by max spend to prevent negative baseline
+                        # Saturated (0-1) × max_spend → ranges from 0 to max_spend
+                        # This keeps features at proper scale relative to revenue
+                        max_spend = daily_df[media_col].max()
+                        if max_spend > 0:
+                            daily_df[f'{media_col}_saturated'] = saturated_raw * max_spend
+                        else:
+                            daily_df[f'{media_col}_saturated'] = saturated_raw
+                        
+                        # Store scaling factor for later use
                         feat_name = f'{media_col}_saturated'
                         feat_cols.append(feat_name)
                         
-                        # Store metadata (no mu/sd since no standardization)
+                        # Store metadata
                         meta[feat_name] = {
                             'spend_col': media_col,
                             'alpha': ch_alpha,
                             'gamma': ch_gamma,
                             'adstock_theta': ch_adstock,
+                            'scaling_factor': max_spend,  # Store for contribution calculation
                             # Store min/max for derivative calculation
                             'x_min': float(daily_df[f'{media_col}_adstock'].min()),
                             'x_max': float(daily_df[f'{media_col}_adstock'].max())
@@ -1460,12 +1470,13 @@ elif tab_selection == "📈 Results & Insights":
                 
                 roi = contrib / total_spend if total_spend > 0 else 0
                 
-                # Get Hill parameters (NEW - gamma-based)
+                # Get Hill parameters and scaling factor
                 adstock_theta = meta[feat]['adstock_theta']
                 alpha = meta[feat]['alpha']
                 gamma = meta[feat]['gamma']
                 x_min = meta[feat]['x_min']
                 x_max = meta[feat]['x_max']
+                scaling_factor = meta[feat]['scaling_factor']
                 current_avg_spend = test_df[channel_name].mean()
                 
                 if current_avg_spend <= 0:
@@ -1474,10 +1485,9 @@ elif tab_selection == "📈 Results & Insights":
                     # Calculate adstocked spend
                     A = current_avg_spend / (1 - adstock_theta) if adstock_theta < 1 else current_avg_spend
                     
-                    # Marginal ROAS = beta × hill_derivative × (1 / (1 - theta))
-                    # No sd since no standardization
+                    # Marginal ROAS = β × scaling_factor × hill_derivative / (1 - θ)
                     hill_deriv = hill_derivative(A, alpha, gamma, x_min, x_max)
-                    marginal_roas = beta * hill_deriv / (1 - adstock_theta) if adstock_theta < 1 else 0
+                    marginal_roas = beta * scaling_factor * hill_deriv / (1 - adstock_theta) if adstock_theta < 1 else 0
                 
                 roi_data.append({
                     'Channel': channel_name.replace('_Cost', '').replace('_cost', ''),
@@ -1773,14 +1783,17 @@ elif tab_selection == "📈 Results & Insights":
             else:
                 adstocked = spend_range
             
-            # Apply Hill saturation (NO standardization)
-            saturated = hill_transformation(adstocked, alpha, gamma)
-            revenue = beta * saturated  # Direct multiplication, no standardization
+            # Apply Hill saturation with scaling
+            saturated_raw = hill_transformation(adstocked, alpha, gamma)
+            scaling_factor = meta[feat]['scaling_factor']
+            saturated = saturated_raw * scaling_factor
+            revenue = beta * saturated  # Scaled contribution
             
-            # Calculate marginal ROAS
+            # Calculate marginal ROAS (derivative accounts for scaling)
             if adstock_theta < 1:
                 hill_deriv = hill_derivative(adstocked, alpha, gamma, x_min, x_max)
-                marginal_roas = beta * hill_deriv / (1 - adstock_theta)
+                # Marginal ROAS = β × scaling_factor × hill_derivative / (1 - θ)
+                marginal_roas = beta * scaling_factor * hill_deriv / (1 - adstock_theta)
             else:
                 marginal_roas = np.zeros_like(spend_range)
             
@@ -1949,9 +1962,14 @@ elif tab_selection == "📈 Results & Insights":
                                 adstocked_spend_clipped = np.maximum(adstocked_spend, 0.0)
                                 x_alpha = np.power(adstocked_spend_clipped, alpha)
                                 inflexion_alpha = np.power(inflexion, alpha)
-                                saturated_spend = x_alpha / (x_alpha + inflexion_alpha)
+                                saturated_raw = x_alpha / (x_alpha + inflexion_alpha)
                                 
-                                # Calculate contribution directly (no standardization)
+                                # Apply same scaling as training: multiply by scaling_factor (max_spend)
+                                # This ensures consistency with how features were created
+                                scaling_factor = meta[feat]['scaling_factor']
+                                saturated_spend = saturated_raw * scaling_factor
+                                
+                                # Calculate contribution
                                 channel_revenue = np.sum(beta * saturated_spend)
                                 total_revenue += channel_revenue
                             
